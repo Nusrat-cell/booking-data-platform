@@ -1,5 +1,6 @@
 """python -m bookings backfill 2026-06-01 2026-10-17     load a range of days, then report
    python -m bookings day 2026-10-18                      run one day through every step
+   python -m bookings ga4                                 build GA4 shaped events, show the reconciliation
 """
 import argparse
 import datetime as dt
@@ -17,9 +18,19 @@ def main() -> None:
     b.add_argument("end")
     d = sub.add_parser("day")
     d.add_argument("date")
+    sub.add_parser("ga4")
     a = ap.parse_args()
     root = Path(a.root)
     db = root / "warehouse.duckdb"
+    if a.cmd == "ga4":
+        from . import ga4
+        print(f"{ga4.build_ga4(db):,} events built")
+        print(ga4.run_query(db, "funnel_by_medium").to_string(index=False))
+        rec = ga4.run_query(db, "purchases_vs_bookings")
+        print(f"\nGA4 saw {rec.ga4_transactions.sum():,} of {rec.bookings.sum():,} bookings; "
+              f"{rec.double_fired.sum():,} purchases were sent twice")
+        print(ga4.export_parquet(db, root / "marts"))
+        return
     if a.cmd == "day":
         print(pipeline.run_day(dt.date.fromisoformat(a.date), root, db))
         return

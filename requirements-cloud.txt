@@ -1,0 +1,4 @@
+google-cloud-bigquery>=3.25
+db-dtypes>=1.3
+pandas>=2.2
+psycopg[binary]>=3.2

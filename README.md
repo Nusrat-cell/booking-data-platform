@@ -25,7 +25,7 @@ Airflow: extract >> load_raw >> build_models >> quality_gate >> finance_report (
 ```bash
 pip install -r requirements.txt
 python -m bookings backfill 2026-06-01 2026-10-17   # load 4.5 months, build models, show the gate
-python -m pytest -q                                  # 29 tests, about 10 seconds
+python -m pytest -q                                  # 37 tests, about 15 seconds
 python -m agent.ops_agent "Which channel has the best ROAS?"   # needs ANTHROPIC_API_KEY
 ```
 
@@ -116,20 +116,66 @@ it against the live API in this repo, so the quality of its answers is untested.
 
 ## Not done, and not tested
 
-* **Dashboards.** The marts are written as Parquet for a BI tool, but I did not build Metabase
-  dashboards.
+* **Dashboards.** The marts are written as Parquet and a compose file starts Metabase on Postgres, but I have not built the dashboards yet.
 * **Docker.** There is a `Dockerfile` for the pipeline and agent image. I could not build it,
   because there was no Docker daemon in my environment.
 * **A real warehouse.** DuckDB stands in for BigQuery or Trino. The SQL is close to standard,
   but I did not run it on either.
 * **GitHub Actions on Python 3.12.** I ran everything locally on Python 3.13.
 
+## Web analytics, BigQuery and Metabase
+
+Web analytics events are built in the shape of the **GA4 BigQuery export** (one row per event,
+nested `event_params`, `user_pseudo_id`, `ecommerce.transaction_id`), from the same synthetic visits and
+bookings. Tracking loss is planted on purpose: about 7 percent of purchases never reach analytics and
+about 3 percent are sent twice. Three queries, written in BigQuery Standard SQL, answer the questions
+a marketing team asks:
+
+| Query | Question |
+|-|-|
+| `ga4/bigquery/sessions_by_medium.sql` | Sessions per day, source and medium |
+| `ga4/bigquery/funnel_by_medium.sql` | How many sessions reach view item, checkout and purchase, per medium |
+| `ga4/bigquery/purchases_vs_bookings.sql` | GA4 purchases against confirmed bookings: missing and double-fired |
+
+```bash
+python -m bookings ga4        # 758,419 events; GA4 saw 6,226 of 6,657 bookings; 162 purchases sent twice
+```
+
+The queries run locally: sqlglot translates them from BigQuery to DuckDB, and the tests run them on the
+synthetic export. The reconciliation finds the planted loss (about 6.5 percent missing).
+
+For the real services:
+
+```bash
+# BigQuery (free sandbox, no billing)
+pip install -r requirements-cloud.txt && gcloud auth application-default login
+export GCP_PROJECT=your-project-id && python bigquery/load.py
+
+# Metabase on Postgres
+docker compose up -d db metabase
+docker compose --profile load run --rm loader      # copies the marts into Postgres
+# then open http://localhost:3000 and add the database: host db, user/password/database warehouse
+```
+
+| Part | Status |
+|-|-|
+| GA4 shaped events and the three queries | built, tested (8 tests) |
+| BigQuery queries translated and run on DuckDB | tested |
+| `bigquery/load.py` against real BigQuery | written, not run yet |
+| `docker compose` file validated with `docker compose config` | validated only |
+| Metabase dashboards, Postgres loader, Docker image | written, not run yet |
+
+I will update this table when I have run the last three rows.
+
 ## Layout
 
 ```
-bookings/     generator, pipeline functions, CLI
+bookings/     generator, pipeline functions, GA4 events, CLI
+ga4/          BigQuery SQL on GA4 shaped events
+bigquery/     loader for real BigQuery
+scripts/      marts to Postgres for Metabase
 sql/          the models, run in file order
 dags/         the Airflow DAG
 agent/        the SQL agent and its guard rails
-tests/        29 tests: pipeline, agent, DAG shape
+tests/        37 tests: pipeline, agent, DAG shape, GA4 events
 ```
