@@ -1,0 +1,28 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          pip install -r requirements.txt
+          pip install "apache-airflow==3.1.8" --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-3.1.8/constraints-3.12.txt"
+      - name: Tests
+        run: python -m pytest -q
+      - name: Backfill and show the quality gate
+        run: python -m bookings backfill 2026-09-01 2026-09-30
+      - name: Run the DAG once
+        run: |
+          export AIRFLOW_HOME=$RUNNER_TEMP/airflow AIRFLOW__CORE__LOAD_EXAMPLES=False AIRFLOW__CORE__DAGS_FOLDER=$PWD/dags BOOKINGS_ROOT=$RUNNER_TEMP/bookings
+          airflow db migrate
+          airflow dags reserialize
+          airflow dags test daily_bookings 2026-10-10

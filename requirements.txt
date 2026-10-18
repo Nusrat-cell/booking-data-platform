@@ -1,0 +1,4 @@
+duckdb==1.3.2
+pandas>=2.2
+pytest>=8
+anthropic>=0.40
